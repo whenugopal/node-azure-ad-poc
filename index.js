@@ -1,31 +1,33 @@
-const express = require("express");
-const auth = require("./auth");
-const app = express();
-const port = 3000;
+const jwt = require("jsonwebtoken");
+const jwksClient = require("jwks-rsa");
+const properties = require("./constants");
 
-app.use(express.json());
-
-app.get("/namaste", authenticateToken, (req, res) => {
-  res.json({
-    message: "Namaste! Thank you everyone!",
-  });
+const client = jwksClient({
+  jwksUri: properties.azureConfig.jwksUri,
 });
 
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-  console.log("here is the auth" + token);
-  return auth.verifyAzureAdToken(token, (err, decoded) => {
-    if (err) {
-      console.error("Token verification failed:", err);
-      return res.sendStatus(401);
-    } else {
-      console.log("Token verified successfully:", decoded);
-      next();
-    }
-  });
+exports.handler = async (event, context) => {
+  try {
+    let header = jwt.decode(event.header.Authorization, {
+      complete: true,
+    }).header;
+    let cert = await getKey(header);
+    console.log(jwt.verify(event.header.Authorization, cert));
+    return generatePolicy("Allow");
+  } catch (error) {
+    console.log("Error occcured", error);
+  }
+  return generatePolicy();
+};
+
+async function getKey(header) {
+  let key = await client.getSigningKey(header.kid);
+  return key.publicKey || key.rsaPublicKey;
 }
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
+function generatePolicy(effect = "Deny") {
+  return JSON.stringify(
+    (properties.policy.policyDocument.Statement[0].Effect = effect) &&
+      properties.policy
+  );
+}
